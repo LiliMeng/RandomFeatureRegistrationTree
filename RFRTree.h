@@ -90,22 +90,15 @@ private:
     
    
     
-    
-    bool search(const RFRSourceSample & sample,
-                const cv::Mat & rgbImage,
-                vector<RFRTargetSample> & predictions) const;
+  
     
     
     bool search(const RFRTreeNode * const node,
                 const RFRSourceSample & sample,
                 const cv::Mat & rgbImage,
-                RFRTargetSample & predict) const;
-    
+                RFRTargetSample & predict) const;    
 
-    bool search(const RFRTreeNode * const node,
-                const RFRSourceSample & sample,
-                const cv::Mat & rgbImage,
-                vector<RFRTargetSample> & searchResults) const;
+   
 };
 
 

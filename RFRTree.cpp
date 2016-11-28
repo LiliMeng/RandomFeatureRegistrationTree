@@ -136,31 +136,15 @@ bool RFRTree::configureNode(const vector<RFRSourceSample> & samples,
     vector<unsigned int> rnd_left_indices;
     vector<unsigned int> rnd_right_indices;
     
-    RFRSplitParameter rnd_split_param;
+    RFRSplitParameter split_param;
+    double min_loss = this->optimizeRandomFeature(samples, rgbImages, indices, tree_param_, rnd_left_indices, rnd_right_indices, split_param);
     
-    double rnd_loss = this->optimizeRandomFeature(samples, rgbImages, indices, tree_param_, rnd_left_indices, rnd_right_indices, rnd_split_param);
-    
-    bool is_rnd_split = rnd_loss<std::numeric_limits<double>::max();
-    
-    
-    
-    bool is_split = is_rnd_split;
-    double min_loss = 0.0;
+    bool is_split = min_loss < std::numeric_limits<double>::max();
     
     if(is_split)
     {
-        min_loss = rnd_loss;
-        node->split_param_ = rnd_split_param;
-    
-    
-        if(tree_param_.verbose_)
-        {
-            printf("depth: %d, random feature loss: %f\n", depth, rnd_loss);
-        }
-    }
-    
-    if(is_split)
-    {
+        node->split_param_ = split_param;
+        
         assert(rnd_left_indices.size() + rnd_right_indices.size() == indices.size());
         if(tree_param_.verbose_)
         {
@@ -173,7 +157,7 @@ bool RFRTree::configureNode(const vector<RFRSourceSample> & samples,
         
         if(rnd_left_indices.size()!=0)
         {
-            RFRTreeNode* left_node = new RFRTreeNode(depth);
+            RFRTreeNode* left_node = new RFRTreeNode(depth+1);
             this->configureNode(samples, rgbImages, rnd_left_indices, depth+1, left_node);
             left_node->sample_percentage_ = 1.0*rnd_left_indices.size()/indices.size();
             node->left_child_ = left_node;
@@ -181,7 +165,7 @@ bool RFRTree::configureNode(const vector<RFRSourceSample> & samples,
         
         if(rnd_right_indices.size()!=0)
         {
-            RFRTreeNode* right_node = new RFRTreeNode(depth);
+            RFRTreeNode* right_node = new RFRTreeNode(depth+1);
             this->configureNode(samples, rgbImages, rnd_right_indices, depth+1, right_node);
             right_node->sample_percentage_ = 1.0*rnd_right_indices.size()/indices.size();
             node->right_child_ = right_node;
@@ -253,8 +237,7 @@ double RFRTree::optimizeRandomFeature(const vector<RFRSourceSample> & samples,
         double cur_loss = this->bestSplitRandomParameter(samples, rgbImages, indices, tree_param,
                                                          cur_split_param, cur_left_indices, cur_right_indices);
         
-        if(cur_loss < min_loss)
-        {
+        if(cur_loss < min_loss) {
             min_loss = cur_loss;
             left_indices = cur_left_indices;
             right_indices = cur_right_indices;
@@ -375,29 +358,17 @@ bool RFRTree::search(const RFRSourceSample & sample,
 }
 
 
-bool RFRTree::search(const RFRSourceSample & sample,
-                     const cv::Mat & rgbImage,
-                    vector<RFRTargetSample> & searchResults) const
-{
-    assert(root_);
-    return this->search(root_, sample, rgbImage, searchResults);
-}
+
 
 bool RFRTree::search(const RFRTreeNode * const node,
                      const RFRSourceSample & sample,
                      const cv::Mat & rgbImage,
                      RFRTargetSample & searchResult) const
 {
-    return this->search(node, sample, rgbImage, searchResult);
-
-}
-
-
-bool RFRTree::search(const RFRTreeNode * const node,
-                     const RFRSourceSample & sample,
-                     const cv::Mat & rgbImage,
-                     vector<RFRTargetSample> & searchResults) const
-{
-    return this->search(node, sample, rgbImage, searchResults);
+//    return this->search(node, sample, rgbImage, searchResult);
+    // add real code here
     
+    return true;
+
 }
+
