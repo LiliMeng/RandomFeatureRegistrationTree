@@ -136,15 +136,31 @@ bool RFRTree::configureNode(const vector<RFRSourceSample> & samples,
     vector<unsigned int> rnd_left_indices;
     vector<unsigned int> rnd_right_indices;
     
-    RFRSplitParameter split_param;
-    double min_loss = this->optimizeRandomFeature(samples, rgbImages, indices, tree_param_, rnd_left_indices, rnd_right_indices, split_param);
+    RFRSplitParameter rnd_split_param;
     
-    bool is_split = min_loss < std::numeric_limits<double>::max();
+    double rnd_loss = this->optimizeRandomFeature(samples, rgbImages, indices, tree_param_, rnd_left_indices, rnd_right_indices, rnd_split_param);
+    
+    bool is_rnd_split = rnd_loss<std::numeric_limits<double>::max();
+    
+    
+    
+    bool is_split = is_rnd_split;
+    double min_loss = 0.0;
     
     if(is_split)
     {
-        node->split_param_ = split_param;
-        
+        min_loss = rnd_loss;
+        node->split_param_ = rnd_split_param;
+    
+    
+        if(tree_param_.verbose_)
+        {
+            printf("depth: %d, random feature loss: %f\n", depth, rnd_loss);
+        }
+    }
+    
+    if(is_split)
+    {
         assert(rnd_left_indices.size() + rnd_right_indices.size() == indices.size());
         if(tree_param_.verbose_)
         {
@@ -157,7 +173,7 @@ bool RFRTree::configureNode(const vector<RFRSourceSample> & samples,
         
         if(rnd_left_indices.size()!=0)
         {
-            RFRTreeNode* left_node = new RFRTreeNode(depth+1);
+            RFRTreeNode* left_node = new RFRTreeNode(depth);
             this->configureNode(samples, rgbImages, rnd_left_indices, depth+1, left_node);
             left_node->sample_percentage_ = 1.0*rnd_left_indices.size()/indices.size();
             node->left_child_ = left_node;
@@ -165,7 +181,7 @@ bool RFRTree::configureNode(const vector<RFRSourceSample> & samples,
         
         if(rnd_right_indices.size()!=0)
         {
-            RFRTreeNode* right_node = new RFRTreeNode(depth+1);
+            RFRTreeNode* right_node = new RFRTreeNode(depth);
             this->configureNode(samples, rgbImages, rnd_right_indices, depth+1, right_node);
             right_node->sample_percentage_ = 1.0*rnd_right_indices.size()/indices.size();
             node->right_child_ = right_node;
@@ -237,7 +253,8 @@ double RFRTree::optimizeRandomFeature(const vector<RFRSourceSample> & samples,
         double cur_loss = this->bestSplitRandomParameter(samples, rgbImages, indices, tree_param,
                                                          cur_split_param, cur_left_indices, cur_right_indices);
         
-        if(cur_loss < min_loss) {
+        if(cur_loss < min_loss)
+        {
             min_loss = cur_loss;
             left_indices = cur_left_indices;
             right_indices = cur_right_indices;
@@ -357,18 +374,69 @@ bool RFRTree::search(const RFRSourceSample & sample,
 
 }
 
-
-
-
 bool RFRTree::search(const RFRTreeNode * const node,
                      const RFRSourceSample & sample,
                      const cv::Mat & rgbImage,
                      RFRTargetSample & searchResult) const
 {
-//    return this->search(node, sample, rgbImage, searchResult);
-    // add real code here
+    if(node->is_leaf_)
+    {
+        searchResult.p2d_ = node->p2d_;
+        searchResult.searched_color_ = node->color_mu_;
+        return true;
+    }
+    else
+    {
+        cv::Point2i p1 = sample.p2d_;
+        cv::Point2i p2 = sample.addOffset(node->split_param_.offset2_);
+        
+        bool is_inside_image2 = CvxUtil::isInside(rgbImage.cols, rgbImage.rows, p2.x, p2.y);
+        
+        if(is_inside_image2)
+        {
+            cv::Vec3b pixel_1 = rgbImage.at<cv::Vec3b>(p1.y, p1.x);
+            cv::Vec3b pixel_2 = rgbImage.at<cv::Vec3b>(p2.y, p2.x);
+            
+            double pixel_1_c = pixel_1[node->split_param_.c1_];
+            double pixel_2_c = pixel_2[node->split_param_.c2_];
+            double split_val = pixel_1_c  + pixel_2_c;
+            
+            if(split_val <node->split_param_.threshold_ && node->left_child_)
+            {
+                return this->search(node->left_child_, sample, rgbImage, searchResult);
+            }
+            else if(node->right_child_)
+            {
+                return this->search(node->right_child_, sample, rgbImage, searchResult);
+            }
+            else
+            {
+                return false;
+            }
+        }
+        else
+        {
+            cv::Vec3b pixel_1 = rgbImage.at<cv::Vec3b>(p1.y, p1.x);
+            
+            double pixel_1_c = pixel_1[node->split_param_.c1_];
+            double pixel_2_c = 0.0;
+            double split_val = pixel_1_c + pixel_2_c;
+            
+            if(split_val<node->split_param_.threshold_ && node->left_child_)
+            {
+                return this->search(node->left_child_, sample, rgbImage, searchResult);
+            }
+            else if(node->right_child_)
+            {
+                return this->search(node->right_child_, sample, rgbImage, searchResult);
+            }
+        
+        }
+    
+    }
     
     return true;
 
 }
+
 
