@@ -71,7 +71,7 @@ class RFRTreeParameter
 public:
     bool is_use_depth_;         // true-->use depth, false depth is constant 1.0
     int max_frame_num_;         // sampled frames for a tree
-    int sampler_num_per_tree;   // sampler numbers in one frame
+    int sampler_num_per_frame_;   // sampler numbers in one frame
     
     int tree_num_;              // number of trees;
     int max_depth_;             // maximum tree depth
@@ -81,7 +81,99 @@ public:
     int pixel_offset_candidate_num_;    // large number less randomness
     int split_candidate_num_;           // number of split in [v_min, v_max]
     bool verbose_;                      // output training
-    bool verbose_leaf_;                 // output leaf information
+    
+    RFRTreeParameter()
+    {
+        //sampler parameters
+        is_use_depth_ = false;
+        max_frame_num_ = 500;
+        sampler_num_per_frame_ = 5000;
+        
+        //tree structure parameter
+        tree_num_ = 5;
+        max_depth_ = 15;
+        min_leaf_node_ = 1;
+        
+        //random sample parameter
+        max_pixel_offset_ = 131;
+        pixel_offset_candidate_num_ = 20;
+        verbose_ =true;
+    
+    }
+    
+    bool readFromFile(const char* file_name)
+    {
+        FILE *pf = fopen(file_name, "r");
+        if(!pf)
+        {
+            printf("Error: can not open %s\n", file_name);
+            return false;
+        }
+        
+        const int param_num =10;
+        unordered_map<std::string, int> imap;
+        for(int i = 0; i<param_num; i++)
+        {
+            char s[1024] = {NULL};
+            int val = 0;
+            int ret = fscanf(pf, "%s %d", s, &val);
+            
+            if(ret!=2)
+            {
+                break;
+            }
+            imap[string(s)] = val;
+        }
+        assert(imap.size()==10);
+        
+        is_use_depth_ = (imap[string("is_use_depth")] == 1);
+        max_frame_num_ = imap[string("max_frame_num")];
+        sampler_num_per_frame_ = imap[string("sampler_num_per_frame")];
+        
+        tree_num_ = imap[string("tree_num")];
+        max_depth_ = imap[string("max_depth")];
+        min_leaf_node_ = imap[string("min_leaf_node")];
+        
+        max_pixel_offset_ = imap[string("max_pixel_offset")];
+        pixel_offset_candidate_num_ = imap[string("pixel_offset_candidate_num")];
+        split_candidate_num_ = imap[string("split_candidate_num")];
+        
+     
+        verbose_ = imap[string("verbose")];
+        
+        return true;
+    
+    }
+    
+    bool writeToFile(FILE *pf)const
+    {
+        assert(pf);
+        fprintf(pf, "is_use_depth %d\n", is_use_depth_);
+        fprintf(pf, "max_frame_num %d\n", max_frame_num_);
+        fprintf(pf, "sampler_num_per_frame %d\n", sampler_num_per_frame_);
+        
+        fprintf(pf, "tree_num %d\n", tree_num_);
+        fprintf(pf, "max_depth %d\n", max_depth_);
+        fprintf(pf, "min_leaf_node %d\n", min_leaf_node_);
+        
+        fprintf(pf, "max_pixel_offset %d\n", max_pixel_offset_);
+        fprintf(pf, "pixel_offset_candidate_num %d\n", pixel_offset_candidate_num_);
+        fprintf(pf, "split_candidate_num %d\n", split_candidate_num_);
+        fprintf(pf, "verbose %d\n", (int)verbose_);
+        return true;
+    }
+    
+    void printSelf() const
+    {
+        printf("RGB tree parameters:\n");
+        printf("max_frame_num: %d\n", max_frame_num_);
+        printf("tree_num: %d\t max_depth: %d\t min_leaf_node: %d\n", tree_num_, max_depth_, min_leaf_node_);
+        printf("max_pixel_offset: %d\t pixel_offset_candidate_num: %d\t split_candidate_num %d\n",
+               max_pixel_offset_,
+               pixel_offset_candidate_num_,
+               split_candidate_num_);
+    }
+
 };
 
 struct RFRSplitParameter
