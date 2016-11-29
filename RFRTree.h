@@ -89,16 +89,15 @@ private:
     
     
    
-    
-  
-    
+   
     
     bool search(const RFRTreeNode * const node,
                 const RFRSourceSample & sample,
                 const cv::Mat & rgbImage,
-                RFRTargetSample & predict) const;    
+                RFRTargetSample & predict) const;
+    
 
-   
+
 };
 
 
