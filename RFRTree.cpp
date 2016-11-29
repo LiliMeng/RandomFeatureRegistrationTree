@@ -2,7 +2,7 @@
 //  RFRTree.cpp
 //  RGBD_RF
 //
-//  Created by jimmy on 2016-11-26.
+//  Created by Lili & Jimmy on 2016-11-26.
 //  Copyright (c) 2016 Nowhere Planet. All rights reserved.
 //
 
