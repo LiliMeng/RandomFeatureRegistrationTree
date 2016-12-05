@@ -1,13 +1,13 @@
 //
-//  RFR_util.h
-//  RGBD_RF
+//  RGBGUtil.hpp
+//  LoopClosure
 //
-//  Created by jimmy on 2016-11-26.
-//  Copyright (c) 2016 Nowhere Planet. All rights reserved.
+//  Created by jimmy on 2016-04-02.
+//  Copyright © 2016 jimmy. All rights reserved.
 //
 
-#ifndef __RGBD_RF__RFR_util__
-#define __RGBD_RF__RFR_util__
+#ifndef RGBGUtil_cpp
+#define RGBGUtil_cpp
 
 #include <stdio.h>
 #include "opencv2/core/core.hpp"
@@ -16,28 +16,22 @@
 #include <limits>
 #include <unordered_map>
 
-
 using std::vector;
 using std::unordered_map;
 using std::string;
 
-// random feature source sample
-class RFRSourceSample
+
+class RGBGLearningSample
 {
 public:
-    cv::Point2i p2d_;   // 2d location
-    double inv_depth_;  // inverted gradient, optional in practice
-    int image_index_;   // image index
+    cv::Point2i p2d_;    // 2d location
+    cv::Point3d p3d_;    // 3d coordinate, only used for training, invalid when in testing
+    double inv_depth_;  // inverted depth
+    int image_index_;      // image index
     
-    cv::Vec3d color_;   // bgr in OpenCV
+    cv::Vec3d color_;       // bgr in OpenCV
     
-
-    RFRSourceSample()
-    {
-        image_index_ = -1;
-        inv_depth_ = 1.0;
-    }
-    
+public:
     cv::Point2i addOffset(const cv::Point2d & offset) const
     {
         int x = cvRound(p2d_.x + offset.x * inv_depth_);
@@ -47,84 +41,162 @@ public:
     }
 };
 
-
-class RFRTargetSample
+class RGBGTestingResult
 {
 public:
-    cv::Point2i p2d_;           // image postion, input
-    double inv_depth_;          // inverted gradient, optional in practice;
+    cv::Point2i p2d_;     // image position
+    cv::Point3d gt_p3d_;  // as ground truth, not used in prediction
+    cv::Point3d predict_p3d_;   // predicted world coordinate
+    cv::Point3d predict_error;  // prediction - ground truth
     
-    cv::Vec3d searched_color_;           // bgr in OpenCV
+    cv::Vec3d  std_;     // prediction standard deviation
+    cv::Vec3d sampled_color_;   // image color
+    cv::Vec3d predict_color_;   // mean color from leaf node
     
-    //analysis only
-    void *leaf_node_;
-    
-    RFRTargetSample()
+    RGBGTestingResult()
     {
-        leaf_node_ = NULL;
+        
     }
     
 };
 
-class RFRTreeParameter
+
+class DatasetParameter
 {
 public:
-    bool is_use_depth_;         // true-->use depth, false depth is constant 1.0
-    int max_frame_num_;         // sampled frames for a tree
+    double depth_factor_;
+    double k_focal_length_x_;
+    double k_focal_length_y_;
+    double k_camera_centre_u_;
+    double k_camera_centre_v_;
+    
+    DatasetParameter()
+    {
+        depth_factor_ = 1000.0;
+        k_focal_length_x_ = 585.0;
+        k_focal_length_y_ = 585.0;
+        k_camera_centre_u_ = 320.0;
+        k_camera_centre_v_ = 240.0;
+    
+    }
+    
+    bool readFromFileDataParameter(const char* file_name)
+    {
+        FILE *pf = fopen(file_name, "r");
+        assert(pf);
+        
+        const double param_num = 5;
+        unordered_map<std::string, double> imap;
+        for(int i = 0; i<param_num; i++)
+        {
+            char s[1024] = {NULL};
+            double val = 0.0;
+            int ret = fscanf(pf, "%s %lf", s, &val);
+            if (ret!=2) {
+                break;
+            }
+            imap[string(s)] = val;
+        }
+        assert(imap.size() == 5);
+        
+        depth_factor_ = imap[string("depth_factor")];
+        k_focal_length_x_ = imap[string("k_focal_length_x")];
+        k_focal_length_y_ = imap[string("k_focal_length_y")];
+        k_camera_centre_u_ = imap[string("k_camera_centre_u")];
+        k_camera_centre_v_ = imap[string("k_camera_centre_v")];
+        
+        printf("Dataset parameters:\n");
+        printf("depth_factor: %lf\n", depth_factor_);
+        printf("k_focal_length_x: %lf\t k_focal_length_y: %lf\n", k_focal_length_x_, k_focal_length_y_);
+        printf("k_camera_centre_u: %lf\t k_camera_centre_v_: %lf\n", k_camera_centre_u_, k_camera_centre_v_);
+        
+        fclose(pf);
+        
+        return true;
+    }
+    
+    bool writeToFile(FILE *pf)const
+    {
+        assert(pf);
+        fprintf(pf, "depth_factor %lf\n", depth_factor_);
+        fprintf(pf, "k_focal_length_x %lf\n", k_focal_length_x_);
+        fprintf(pf, "k_focal_length_y %lf\n", k_focal_length_y_);
+        
+        fprintf(pf, "k_camera_centre_u %lf\n", k_camera_centre_u_);
+        fprintf(pf, "k_camera_centre_v %lf\n", k_camera_centre_v_);
+       
+        return true;
+    }
+    
+    void printSelf() const
+    {
+        printf("Dataset parameters:\n");
+        printf("depth_factor: %lf\n", depth_factor_);
+        printf("k_focal_length_x: %lf\t k_focal_length_y: %lf\n", k_focal_length_x_, k_focal_length_y_);
+        printf("k_camera_centre_u: %lf\t k_camera_centre_v_: %lf\n", k_camera_centre_u_, k_camera_centre_v_);
+       
+    }
+
+};
+
+class RGBGTreeParameter
+{
+public:
+    bool is_use_depth_;           // true --> use depth, false depth is constant 1.0
+    int max_frame_num_;           // sampled frames for a tree
     int sampler_num_per_frame_;   // sampler numbers in one frame
     
-    int tree_num_;              // number of trees;
-    int max_depth_;             // maximum tree depth
-    int min_leaf_node_;             // minimum leaf node size    
+    int tree_num_;                // number of trees
+    int max_depth_;
+    int min_leaf_node_;
     
-    int max_pixel_offset_;          // int pixel
-    int pixel_offset_candidate_num_;    // large number less randomness
-    int split_candidate_num_;           // number of split in [v_min, v_max]
-    bool verbose_;                      // output training
+    int max_pixel_offset_;            // in pixel
+    int pixel_offset_candidate_num_;  // large number less randomness
+    int split_candidate_num_;  // number of split in [v_min, v_max]
+    int weight_candidate_num_;
+    bool verbose_;
     
-    RFRTreeParameter()
+    
+    RGBGTreeParameter()
     {
-        //sampler parameters
+        // sampler parameters
         is_use_depth_ = false;
         max_frame_num_ = 500;
         sampler_num_per_frame_ = 5000;
         
-        //tree structure parameter
+        // tree structure parameter
         tree_num_ = 5;
         max_depth_ = 15;
-        min_leaf_node_ = 1;
+        min_leaf_node_ = 50;
         
-        //random sample parameter
+        // random sample parameter
         max_pixel_offset_ = 131;
         pixel_offset_candidate_num_ = 20;
-        verbose_ =true;
-    
+        split_candidate_num_ = 20;
+        weight_candidate_num_ = 10;
+        verbose_ = true;
+        
+       
     }
     
-    bool readFromFile(const char* file_name)
+    
+    bool readFromFile(FILE *pf)
     {
-        FILE *pf = fopen(file_name, "r");
-        if(!pf)
-        {
-            printf("Error: can not open %s\n", file_name);
-            return false;
-        }
+        assert(pf);
         
-        const int param_num =10;
+        const int param_num = 11;
         unordered_map<std::string, int> imap;
         for(int i = 0; i<param_num; i++)
         {
             char s[1024] = {NULL};
             int val = 0;
             int ret = fscanf(pf, "%s %d", s, &val);
-            
-            if(ret!=2)
-            {
+            if (ret != 2) {
                 break;
             }
             imap[string(s)] = val;
         }
-        assert(imap.size()==10);
+        assert(imap.size() == 11);
         
         is_use_depth_ = (imap[string("is_use_depth")] == 1);
         max_frame_num_ = imap[string("max_frame_num")];
@@ -138,11 +210,10 @@ public:
         pixel_offset_candidate_num_ = imap[string("pixel_offset_candidate_num")];
         split_candidate_num_ = imap[string("split_candidate_num")];
         
-     
+        weight_candidate_num_ = imap[string("weight_candidate_num")];
         verbose_ = imap[string("verbose")];
         
         return true;
-    
     }
     
     bool writeToFile(FILE *pf)const
@@ -159,6 +230,7 @@ public:
         fprintf(pf, "max_pixel_offset %d\n", max_pixel_offset_);
         fprintf(pf, "pixel_offset_candidate_num %d\n", pixel_offset_candidate_num_);
         fprintf(pf, "split_candidate_num %d\n", split_candidate_num_);
+        fprintf(pf, "weight_candidate_num %d\n", weight_candidate_num_);
         fprintf(pf, "verbose %d\n", (int)verbose_);
         return true;
     }
@@ -172,190 +244,100 @@ public:
                max_pixel_offset_,
                pixel_offset_candidate_num_,
                split_candidate_num_);
+        printf("weight_candidate_num_: %d\n\n", weight_candidate_num_);
     }
-
 };
 
-struct RFRSplitParameter
+struct RGBGTreePruneParameter
 {
-    int c1_;                // rgb image channel
-    int c2_;
-    cv::Point2d offset2_;   // displacement in image [x, y]
-    double threshold_;      // threshold of splitting. store result
+    double x_max_stddev_;
+    double y_max_stddev_;
+    double z_max_stddev_;
     
-    RFRSplitParameter()
+    RGBGTreePruneParameter()
     {
-        c1_ = 0;
-        c2_ = 0;
-        threshold_ = 0.0;
+        x_max_stddev_ = std::numeric_limits<double>::max();
+        y_max_stddev_ = std::numeric_limits<double>::max();
+        z_max_stddev_ = std::numeric_limits<double>::max();
+    }
+    
+    RGBGTreePruneParameter(const double x_stddev,
+                           const double y_stddev,
+                           const double z_stddev)
+    {
+        x_max_stddev_ = x_stddev;
+        y_max_stddev_ = y_stddev;
+        z_max_stddev_ = z_stddev;
     }
 };
 
 
-class RFRUtil
-{
-public:
-    static vector<RFRSourceSample>
-    randomSampleFromRgbdImages(const char* rgb_img_file,
-                               const char* depth_img_file,
-                               const int   num_sample,
-                               const int   image_index,
-                               const double depth_factor,
-                               const double min_depth,
-                               const double max_depth,
-                               const bool use_depth,
-                               const bool verbose = false);
-    
-    
-    //balance of left and right tree node
-    static double inbalance_loss(const int leftNodeSize, const int rightNodeSize);
-    
-
-};
-
-class DatasetParameter
+class RGBGUtil
 {
 public:
-    double depth_factor_;
-    double k_focal_length_x_;
-    double k_focal_length_y_;
-    double k_camera_centre_u_;
-    double k_camera_centre_v_;
-    double min_depth_;
-    double max_depth_;
+    static void mean_stddev(const vector<RGBGLearningSample> & sample,
+                            const vector<unsigned int> & indices,
+                            cv::Point3d & mean_pt,
+                            cv::Vec3d & stddev);
     
-    DatasetParameter()
-    {
-        depth_factor_ = 1000.0;
-        k_focal_length_x_ = 585.0;
-        k_focal_length_y_ = 585.0;
-        k_camera_centre_u_ = 320.0;
-        k_camera_centre_v_ = 240.0;
-        min_depth_ = 0.05;
-        max_depth_ = 6.0;
-    }
+    static void mean_stddev(const vector<cv::Point3d> & points,
+                            cv::Point3d & mean_pos,
+                            cv::Vec3d & std_pos);
     
-    cv::Mat camera_matrix() const
-    {
-        cv::Mat K = cv::Mat::eye(3, 3, CV_64FC1);
-        K.at<double>(0, 0) = k_focal_length_x_;
-        K.at<double>(1, 1) = k_focal_length_y_;
-        K.at<double>(0, 2) = k_camera_centre_u_;
-        K.at<double>(1, 2) = k_camera_centre_v_;
-        
-        return K;
-    }
-    
-    void as4Scenes()
-    {
-        depth_factor_ = 1000.0;
-        k_focal_length_x_ = 572.0;
-        k_focal_length_y_ = 572.0;
-        k_camera_centre_u_ = 320.0;
-        k_camera_centre_v_ = 240.0;
-        min_depth_ = 0.05;
-        max_depth_ = 10.0;
-    }
-    
-    void as7Scenes()
-    {
-        depth_factor_ = 1000.0;
-        k_focal_length_x_ = 585.0;
-        k_focal_length_y_ = 585.0;
-        k_camera_centre_u_ = 320.0;
-        k_camera_centre_v_ = 240.0;
-        min_depth_ = 0.05;
-        max_depth_ = 6.0;
-    }
-    
-    bool readFromFile(FILE *pf)
-    {
-        assert(pf);
-        const double param_num = 7;
-        unordered_map<std::string, double> imap;
-        for(int i = 0; i<param_num; i++)
-        {
-            char s[1024] = {NULL};
-            double val = 0.0;
-            int ret = fscanf(pf, "%s %lf", s, &val);
-            if (ret != 2) {
-                break;
-            }
-            imap[string(s)] = val;
-        }
-        assert(imap.size() == 7);
-        
-        depth_factor_ = imap[string("depth_factor")];
-        k_focal_length_x_ = imap[string("k_focal_length_x")];
-        k_focal_length_y_ = imap[string("k_focal_length_y")];
-        k_camera_centre_u_ = imap[string("k_camera_centre_u")];
-        k_camera_centre_v_ = imap[string("k_camera_centre_v")];
-        min_depth_ = imap[string("min_depth")];
-        max_depth_ = imap[string("max_depth")];
-        return true;
-    }
+    static void mean_stddev(const vector<cv::Vec3d> & data,
+                            cv::Vec3d & mean,
+                            cv::Vec3d & stddev);
     
     
-    bool readFromFileDataParameter(const char* file_name)
-    {
-        FILE *pf = fopen(file_name, "r");
-        if (!pf) {
-            printf("Error: can not open %s \n", file_name);
-            return false;
-        }
-        
-        const double param_num = 7;
-        unordered_map<std::string, double> imap;
-        for(int i = 0; i<param_num; i++)
-        {
-            char s[1024] = {NULL};
-            double val = 0.0;
-            int ret = fscanf(pf, "%s %lf", s, &val);
-            if (ret != 2) {
-                break;
-            }
-            imap[string(s)] = val;
-        }
-        assert(imap.size() == 7);
-        fclose(pf);
-        
-        depth_factor_ = imap[string("depth_factor")];
-        k_focal_length_x_ = imap[string("k_focal_length_x")];
-        k_focal_length_y_ = imap[string("k_focal_length_y")];
-        k_camera_centre_u_ = imap[string("k_camera_centre_u")];
-        k_camera_centre_v_ = imap[string("k_camera_centre_v")];
-        min_depth_ = imap[string("min_depth")];
-        max_depth_ = imap[string("max_depth")];
-        
-        return true;
-    }
     
-    bool writeToFile(FILE *pf)const
-    {
-        assert(pf);
-        fprintf(pf, "depth_factor %lf\n", depth_factor_);
-        fprintf(pf, "k_focal_length_x %lf\n", k_focal_length_x_);
-        fprintf(pf, "k_focal_length_y %lf\n", k_focal_length_y_);
-        
-        fprintf(pf, "k_camera_centre_u %lf\n", k_camera_centre_u_);
-        fprintf(pf, "k_camera_centre_v %lf\n", k_camera_centre_v_);
-        fprintf(pf, "min_depth %f\n", min_depth_);
-        fprintf(pf, "max_depth %f\n", max_depth_);
-        
-        return true;
-    }
+    // spatial variance of selected samples
+    static double spatial_variance(const vector<RGBGLearningSample> & samples, const vector<unsigned int> & indices);
     
-    void printSelf() const
-    {
-        printf("Dataset parameters:\n");
-        printf("depth_factor: %lf\n", depth_factor_);
-        printf("k_focal_length_x: %lf\t k_focal_length_y: %lf\n", k_focal_length_x_, k_focal_length_y_);
-        printf("k_camera_centre_u: %lf\t k_camera_centre_v_: %lf\n", k_camera_centre_u_, k_camera_centre_v_);
-        printf("min depth: %f\t max depth: %f\n", min_depth_, max_depth_);
-    }
+    // depth image only used to get the ground truth, not used in the feature
+    static vector<RGBGLearningSample>
+    randomSampleFromRgbdImagesWithoutDepth(const char * rgb_img_file,
+                                           const char * depth_img_file,
+                                           const char * camera_pose_file,
+                                           const int num_sample,
+                                           const int image_index,
+                                           const bool use_depth = false,
+                                           const bool verbose = false);
+     static vector<RGBGLearningSample>
+    randomSampleFromRgbdImagesWithoutDepth(const char * rgb_img_file,
+                                           const char * depth_img_file,
+                                           const char * camera_pose_file,
+                                           const int num_sample,
+                                           const int image_index,
+                                           const double depth_factor,
+                                           const cv::Mat calibration_matrix,
+                                           const double min_depth,
+                                           const double max_depth,
+                                           const bool use_depth = false,
+                                           const bool verbose = false);
+   
+    
+    // depth image only used to get the ground truth, not used in the feature
+    // scale: image_size * scale: 0.8, 0.6
+    static vector<RGBGLearningSample> randomSampleFromRgbWithScale(const char * rgb_img_file,
+                                                                                      const char * depth_img_file,
+                                                                                      const char * camera_pose_file,
+                                                                                      const int num_sample,
+                                                                                      const int image_index,
+                                                                                      const double scale,
+                                                                                      cv::Mat & scaled_rgb_img);
+    
+    static cv::Point3d predictionErrorStddev(const vector<RGBGTestingResult> & results);    
+    
+    
+    static vector<double> predictionErrorDistance(const vector<RGBGTestingResult> & results);
+    
+    static bool readDatasetParameter(const char *file_name, DatasetParameter & dataset_param);
+    
+    static bool readTreeParameter(const char *file_name, RGBGTreeParameter & tree_param);
+    
+    static bool readTreePruneParameter(const char *file_name, RGBGTreePruneParameter & param);    
     
 };
 
 
-
-#endif /* defined(__RGBD_RF__RFR_util__) */
+#endif /* RGBGUtil_cpp */
